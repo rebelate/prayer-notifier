@@ -365,6 +365,7 @@ class PrayerApp {
         this.monitorHandle = null;
         this.liveHeaderHandle = null;
         this.keyListener = null;
+        this.resizeListener = null;
         this.pendingAction = "";
         this.inputRow = 0;
         this.rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
@@ -687,6 +688,10 @@ class PrayerApp {
             process.stdin.off("keypress", this.keyListener);
             this.keyListener = null;
         }
+        if (this.resizeListener) {
+            process.stdout.off("resize", this.resizeListener);
+            this.resizeListener = null;
+        }
         if (process.stdin.isTTY) {
             process.stdin.setRawMode(false);
         }
@@ -745,6 +750,12 @@ class PrayerApp {
             this.handleKeypress(str, key);
         };
         process.stdin.on("keypress", this.keyListener);
+        if (process.stdout.isTTY) {
+            this.resizeListener = () => {
+                this.refreshUI();
+            };
+            process.stdout.on("resize", this.resizeListener);
+        }
         process.on('SIGINT', () => {
             this.shutdown(0);
         });
