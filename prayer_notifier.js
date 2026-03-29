@@ -308,7 +308,7 @@ class PrayerCalculator {
     }
 
     getMethodLabel() {
-        return `Meeus solar calc • Fajr -20° • Isha -18° • Asr standard • Ihtiyat +${this.ihtiyatMinutes}m`;
+        return `Meeus solar calc • Fajr -20° • Isya -18° • Asr standard • Ihtiyat +${this.ihtiyatMinutes}m`;
     }
 
     _getJD(date) {
@@ -348,7 +348,7 @@ class PrayerCalculator {
 
         const asrAlt = this._deg(Math.atan(1.0 / (1.0 + Math.tan(this._rad(Math.abs(this.lat - decl))))));
         const buf = this.ihtiyatMinutes / 60.0;
-        const times = { "Fajr": ha(-20, -1), "Dhuhr": noon, "Asr": ha(asrAlt, 1), "Maghrib": ha(-0.833, 1), "Isha": ha(-18, 1) };
+        const times = { "Fajr": ha(-20, -1), "Dhuhr": noon, "Asr": ha(asrAlt, 1), "Maghrib": ha(-0.833, 1), "Isya": ha(-18, 1) };
         const res = {};
         for (const [n, v] of Object.entries(times)) { res[n] = v !== null ? (v + buf) % 24 : null; }
         return res;
@@ -383,9 +383,11 @@ class PrayerApp {
         this.liveHeaderHandle = null;
         this.keyListener = null;
         this.resizeListener = null;
+        this.sigintListener = null;
+        this.sigtstpListener = null;
+        this.sigcontListener = null;
         this.pendingAction = "";
         this.inputRow = 0;
-        this.rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
     }
 
     updateDay(date) {
@@ -532,9 +534,6 @@ class PrayerApp {
     }
 
     updateLiveHeader() {
-        if (!this.rl || this.rl.closed) {
-            return;
-        }
         const lines = this.buildLiveHeaderLines();
         process.stdout.write("\x1b7");
         this.writeScreenLine(2, lines[0]);
@@ -615,7 +614,7 @@ class PrayerApp {
             d: "Dhuhr",
             a: "Asr",
             m: "Maghrib",
-            i: "Isha"
+            i: "Isya"
         }[key] || "";
     }
 
@@ -636,6 +635,11 @@ class PrayerApp {
     handleKeypress(str, key = {}) {
         if (key.ctrl && key.name === "c") {
             this.shutdown(0);
+            return;
+        }
+
+        if (key.ctrl && key.name === "z") {
+            this.suspend();
             return;
         }
 
@@ -693,6 +697,50 @@ class PrayerApp {
         this.renderInputLine();
     }
 
+    enableInteractiveInput() {
+        readline.emitKeypressEvents(process.stdin);
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(true);
+        }
+        process.stdin.resume();
+        if (!this.keyListener) {
+            this.keyListener = (str, key) => {
+                this.handleKeypress(str, key);
+            };
+        }
+        process.stdin.on("keypress", this.keyListener);
+    }
+
+    disableInteractiveInput() {
+        if (this.keyListener) {
+            process.stdin.off("keypress", this.keyListener);
+        }
+        if (process.stdin.isTTY) {
+            process.stdin.setRawMode(false);
+        }
+        process.stdin.pause();
+    }
+
+    suspend() {
+        this.disableInteractiveInput();
+        if (this.sigtstpListener) {
+            process.off("SIGTSTP", this.sigtstpListener);
+        }
+        process.stdout.write("\n");
+        process.kill(process.pid, "SIGTSTP");
+    }
+
+    resumeFromSuspend() {
+        if (this.sigtstpListener) {
+            process.off("SIGTSTP", this.sigtstpListener);
+            process.on("SIGTSTP", this.sigtstpListener);
+        }
+        process.stdin.resume();
+        this.enableInteractiveInput();
+        this.pendingAction = "";
+        this.refreshUI();
+    }
+
     shutdown(exitCode = 0) {
         if (this.monitorHandle) {
             clearInterval(this.monitorHandle);
@@ -702,19 +750,23 @@ class PrayerApp {
             clearInterval(this.liveHeaderHandle);
             this.liveHeaderHandle = null;
         }
-        if (this.keyListener) {
-            process.stdin.off("keypress", this.keyListener);
-            this.keyListener = null;
-        }
+        this.disableInteractiveInput();
+        this.keyListener = null;
         if (this.resizeListener) {
             process.stdout.off("resize", this.resizeListener);
             this.resizeListener = null;
         }
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(false);
+        if (this.sigintListener) {
+            process.off("SIGINT", this.sigintListener);
+            this.sigintListener = null;
         }
-        if (!this.rl.closed) {
-            this.rl.close();
+        if (this.sigtstpListener) {
+            process.off("SIGTSTP", this.sigtstpListener);
+            this.sigtstpListener = null;
+        }
+        if (this.sigcontListener) {
+            process.off("SIGCONT", this.sigcontListener);
+            this.sigcontListener = null;
         }
         process.stdout.write("\n");
         process.exit(exitCode);
@@ -760,23 +812,28 @@ class PrayerApp {
         this.monitor();
         this.refreshUI();
         this.startLiveHeaderUpdates();
-        readline.emitKeypressEvents(process.stdin, this.rl);
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-        }
-        this.keyListener = (str, key) => {
-            this.handleKeypress(str, key);
-        };
-        process.stdin.on("keypress", this.keyListener);
+        this.enableInteractiveInput();
         if (process.stdout.isTTY) {
             this.resizeListener = () => {
                 this.refreshUI();
             };
             process.stdout.on("resize", this.resizeListener);
         }
-        process.on('SIGINT', () => {
+        this.sigintListener = () => {
             this.shutdown(0);
-        });
+        };
+        this.sigtstpListener = () => {
+            this.suspend();
+        };
+        this.sigcontListener = () => {
+            this.resumeFromSuspend();
+        };
+        process.off("SIGINT", this.sigintListener);
+        process.off("SIGTSTP", this.sigtstpListener);
+        process.off("SIGCONT", this.sigcontListener);
+        process.on("SIGINT", this.sigintListener);
+        process.on("SIGTSTP", this.sigtstpListener);
+        process.on("SIGCONT", this.sigcontListener);
     }
 }
 
