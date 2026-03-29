@@ -2,6 +2,12 @@
 
 Terminal prayer time notifier for Node.js.
 
+## Screenshots
+
+![Screenshot 1](image/Screenshot%20From%202026-03-29%2014-44-36.png)
+![Screenshot 2](image/Screenshot%20From%202026-03-29%2014-44-48.png)
+![Screenshot 3](image/Screenshot%20From%202026-03-29%2014-45-03.png)
+
 ## Run
 
 ```bash
