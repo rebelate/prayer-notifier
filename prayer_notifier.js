@@ -160,6 +160,21 @@ function parseCoordinate(input, fallback, min, max) {
     return value;
 }
 
+function parseMinuteOffset(input, fallback, min = 0, max = 60) {
+    const trimmed = input.trim();
+    if (trimmed === "") {
+        return fallback;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+        return null;
+    }
+    const value = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(value) || value < min || value > max) {
+        return null;
+    }
+    return value;
+}
+
 function isValidTimeZone(value) {
     if (typeof value !== "string" || value.trim() === "") {
         return false;
@@ -285,14 +300,15 @@ function notify(title, message) {
  * Astronomical Calculations (Meeus Algorithm)
  */
 class PrayerCalculator {
-    constructor(lat, lon, tzName) {
+    constructor(lat, lon, tzName, ihtiyatMinutes = 2) {
         this.lat = lat;
         this.lon = lon;
         this.tzName = tzName;
+        this.ihtiyatMinutes = ihtiyatMinutes;
     }
 
     getMethodLabel() {
-        return "Meeus solar calc • Fajr -20° • Isha -18° • Asr standard";
+        return `Meeus solar calc • Fajr -20° • Isha -18° • Asr standard • Ihtiyat +${this.ihtiyatMinutes}m`;
     }
 
     _getJD(date) {
@@ -331,7 +347,7 @@ class PrayerCalculator {
         };
 
         const asrAlt = this._deg(Math.atan(1.0 / (1.0 + Math.tan(this._rad(Math.abs(this.lat - decl))))));
-        const buf = 2.0 / 60.0;
+        const buf = this.ihtiyatMinutes / 60.0;
         const times = { "Fajr": ha(-20, -1), "Dhuhr": noon, "Asr": ha(asrAlt, 1), "Maghrib": ha(-0.833, 1), "Isha": ha(-18, 1) };
         const res = {};
         for (const [n, v] of Object.entries(times)) { res[n] = v !== null ? (v + buf) % 24 : null; }
@@ -354,9 +370,10 @@ class PrayerCalculator {
  * Main Application
  */
 class PrayerApp {
-    constructor(lat, lon, tzName) {
-        this.calc = new PrayerCalculator(lat, lon, tzName);
+    constructor(lat, lon, tzName, ihtiyatMinutes = 2) {
+        this.calc = new PrayerCalculator(lat, lon, tzName, ihtiyatMinutes);
         this.tzName = tzName;
+        this.ihtiyatMinutes = ihtiyatMinutes;
         this.done = {};
         this.times = {};
         this.notified = new Set();
@@ -400,6 +417,7 @@ class PrayerApp {
             lat: this.calc.lat,
             lon: this.calc.lon,
             tzName: this.tzName,
+            ihtiyatMinutes: this.ihtiyatMinutes,
             theme: themeName,
             dayKey: this.dayKey,
             done: this.done
@@ -771,6 +789,7 @@ async function setup() {
     const dLat = savedState?.lat ?? -6.1751;
     const dLon = savedState?.lon ?? 106.8272;
     const dTz = savedState?.tzName ?? "Asia/Jakarta";
+    const dIhtiyat = savedState?.ihtiyatMinutes ?? 2;
     const lat = await askValidated(
         question,
         ` Latitude  [${dLat}]: `,
@@ -792,9 +811,15 @@ async function setup() {
         },
         { title: "Invalid timezone.", detail: "Use an IANA zone like Asia/Jakarta." }
     );
+    const ihtiyatMinutes = await askValidated(
+        question,
+        ` Ihtiyat   [${dIhtiyat}]: `,
+        (input) => parseMinuteOffset(input, dIhtiyat, 0, 60),
+        { title: "Invalid ihtiyat.", detail: "Use a whole number of minutes between 0 and 60." }
+    );
 
     rl.close();
-    const app = new PrayerApp(lat, lon, tz);
+    const app = new PrayerApp(lat, lon, tz, ihtiyatMinutes);
     app.updateDay(new Date());
     app.restoreState(savedState);
     app.saveState();
