@@ -233,7 +233,7 @@ function getCelestialStage(currentHour, times, gracePeriodMinutes) {
     const gracePeriodHours = gracePeriodMinutes / 60.0;
 
     // "Sun" period is from Fajr until Maghrib, extended by gracePeriodHours
-    if (currentHour >= fajr && currentHour < (maghrib - gracePeriodHours)) {
+    if (currentHour >= fajr -gracePeriodHours && currentHour < (maghrib - gracePeriodHours)) {
         return "sun";
     } else {
         // If currentHour is before Fajr OR after Maghrib (plus grace), it's moon
