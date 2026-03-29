@@ -36,4 +36,3 @@ On first run it asks for latitude, longitude, and timezone, then saves them in `
 
 - Requires Node.js
 - Linux notifications use `notify-send`
-- Untested on Windows

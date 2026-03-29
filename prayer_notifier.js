@@ -265,10 +265,12 @@ function notify(title, message) {
             const escapedMessage = message.replace(/'/g, "''");
             const psScript = `
                 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-                $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-                $xml.LoadXml("<toast><visual><binding template='ToastGeneric'><text>${escapedTitle}</text><text>${escapedMessage}</text></binding></visual></toast>")
-                $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('PrayerNotifier').Show($toast)
+                $template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+                $nodes = $template.GetElementsByTagName("text")
+                $nodes.Item(0).AppendChild($template.CreateTextNode('${escapedTitle}')) | Out-Null
+                $nodes.Item(1).AppendChild($template.CreateTextNode('${escapedMessage}')) | Out-Null
+                $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
+                [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("PrayerNotifier").Show($toast)
             `;
             spawnSync("powershell", ["-NoProfile", "-Command", psScript]);
         } else if (os.platform() === "linux") {
