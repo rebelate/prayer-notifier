@@ -222,19 +222,23 @@ function formatBlinkingClock(now = new Date()) {
     return `${hour}${separator}${minute}`;
 }
 
-function getCelestialStage(currentHour, times) {
+function getCelestialStage(currentHour, times, gracePeriodMinutes) {
     const fajr = times.Fajr;
-    const isya = times.Isya;
+    const maghrib = times.Maghrib;
 
-    if ([fajr, isya].some((value) => value === null)) {
+    if ([fajr, maghrib].some((value) => value === null)) {
         return "sun";
     }
 
-    if (currentHour < fajr || currentHour >= isya) {
+    const gracePeriodHours = gracePeriodMinutes / 60.0;
+
+    // "Sun" period is from Fajr until Maghrib, extended by gracePeriodHours
+    if (currentHour >= fajr && currentHour < (maghrib - gracePeriodHours)) {
+        return "sun";
+    } else {
+        // If currentHour is before Fajr OR after Maghrib (plus grace), it's moon
         return "moon";
     }
-
-    return "sun";
 }
 
 function renderCelestialArt(stage) {
@@ -412,6 +416,7 @@ class PrayerApp {
         this.calc = new PrayerCalculator(lat, lon, tzName, ihtiyatMinutes);
         this.tzName = tzName;
         this.ihtiyatMinutes = ihtiyatMinutes;
+        this.gracePeriodMinutes = 0.2;
         this.done = {};
         this.times = {};
         this.notified = new Set();
@@ -489,11 +494,15 @@ class PrayerApp {
     getNextPrayerInfo(now = new Date()) {
         const current = this.getCurrentDecimalHour(now);
         for (const [name, pHour] of Object.entries(this.times)) {
-            if (pHour !== null && pHour > current) {
+            if (pHour === null) continue;
+
+            const diff = (pHour - current) * 60.0;
+
+            if (diff >= this.gracePeriodMinutes) { // NEXT PRAYER uses >=
                 return {
                     name,
                     time: this.calc.formatTime(pHour),
-                    minutesLeft: (pHour - current) * 60.0
+                    minutesLeft: diff
                 };
             }
         }
@@ -501,10 +510,11 @@ class PrayerApp {
         const tomorrow = new Date(now);
         tomorrow.setDate(tomorrow.getDate() + 1);
         const fajr = this.calc.calculateTimes(tomorrow).Fajr;
+        const minutesUntilTomorrowFajr = ((24 - current) + fajr) * 60.0;
         return {
             name: "Fajr",
             time: this.calc.formatTime(fajr),
-            minutesLeft: ((24 - current) + fajr) * 60.0
+            minutesLeft: minutesUntilTomorrowFajr
         };
     }
 
@@ -523,16 +533,14 @@ class PrayerApp {
     }
 
     buildHeaderLines(now = new Date()) {
-        const nextPrayer = this.getNextPrayerInfo(now);
-        const artLines = renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times))
-            .map((line) => ` ${accent(line)}`);
+        const live = this.buildLiveHeaderLines(now);
         return [
             "",
             ` ${highlight("✨ Prayer Notifier")}`,
-            ...artLines,
-            ` ${bright(formatBlinkingClock(now))}`,
+            ...live.artLines,
+            live.clockLine,
             ` ${dim(now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}`,
-            ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`,
+            live.nextLine,
             ` ${subtle(this.calc.getMethodLabel())}`,
             ` ${subtle(`Location: ${this.calc.lat}, ${this.calc.lon} (${this.tzName})`)}`,
             ""
@@ -542,7 +550,7 @@ class PrayerApp {
     buildLiveHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
         return {
-            artLines: renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times))
+            artLines: renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times, this.gracePeriodMinutes))
                 .map((line) => ` ${accent(line)}`),
             clockLine: ` ${bright(formatBlinkingClock(now))}`,
             nextLine: ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`
@@ -828,7 +836,7 @@ class PrayerApp {
                 this.updateDay(now);
                 this.refreshUI();
             }
-            const curr = now.getHours() + now.getMinutes() / 60.0 + now.getSeconds() / 3600.0;
+            const curr = this.getCurrentDecimalHour(now);
             for (const [name, pHour] of Object.entries(this.times)) {
                 if (pHour === null) continue;
                 const diff = (pHour - curr) * 60.0;
@@ -836,7 +844,7 @@ class PrayerApp {
                     notify("Upcoming Prayer", `${name} in 30 mins.`);
                     this.notified.add(`${name}_30`);
                 }
-                if (diff > -0.5 && diff <= 0.5 && !this.notified.has(name)) {
+                if (diff >= 0 && diff <= this.gracePeriodMinutes && !this.notified.has(name)) {
                     notify("Prayer Time", `It is now time for ${name}.`);
                     this.notified.add(name);
                 }
@@ -848,7 +856,7 @@ class PrayerApp {
                     }
                 }
             }
-        }, 5000);
+        }, 2000);
     }
 
     startLiveHeaderUpdates() {
