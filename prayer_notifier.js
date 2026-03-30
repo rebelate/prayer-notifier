@@ -227,14 +227,14 @@ function getCelestialStage(currentHour, times) {
     const isya = times.Isya;
 
     if ([fajr, isya].some((value) => value === null)) {
-        return { key: "sun", label: "Day" };
+        return "sun";
     }
 
     if (currentHour < fajr || currentHour >= isya) {
-        return { key: "moon", label: "Night" };
+        return "moon";
     }
 
-    return { key: "sun", label: "Day" };
+    return "sun";
 }
 
 function renderCelestialArt(stage) {
@@ -500,8 +500,7 @@ class PrayerApp {
 
         const tomorrow = new Date(now);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowTimes = this.calc.calculateTimes(tomorrow);
-        const fajr = tomorrowTimes.Fajr;
+        const fajr = this.calc.calculateTimes(tomorrow).Fajr;
         return {
             name: "Fajr",
             time: this.calc.formatTime(fajr),
@@ -525,8 +524,8 @@ class PrayerApp {
 
     buildHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
-        const stage = getCelestialStage(this.getCurrentDecimalHour(now), this.times);
-        const artLines = renderCelestialArt(stage.key).map((line) => ` ${accent(line)}`);
+        const artLines = renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times))
+            .map((line) => ` ${accent(line)}`);
         return [
             "",
             ` ${highlight("✨ Prayer Notifier")}`,
@@ -542,9 +541,9 @@ class PrayerApp {
 
     buildLiveHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
-        const stage = getCelestialStage(this.getCurrentDecimalHour(now), this.times);
         return {
-            artLines: renderCelestialArt(stage.key).map((line) => ` ${accent(line)}`),
+            artLines: renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times))
+                .map((line) => ` ${accent(line)}`),
             clockLine: ` ${bright(formatBlinkingClock(now))}`,
             nextLine: ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`
         };
