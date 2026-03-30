@@ -222,6 +222,44 @@ function formatBlinkingClock(now = new Date()) {
     return `${hour}${separator}${minute}`;
 }
 
+function getCelestialStage(currentHour, times) {
+    const fajr = times.Fajr;
+    const isya = times.Isya;
+
+    if ([fajr, isya].some((value) => value === null)) {
+        return { key: "sun", label: "Day" };
+    }
+
+    if (currentHour < fajr || currentHour >= isya) {
+        return { key: "moon", label: "Night" };
+    }
+
+    return { key: "sun", label: "Day" };
+}
+
+function renderCelestialArt(stage) {
+    const artByStage = {
+        moon: [
+            "       _..._    ",
+            "     .:::'      ",
+            "    ::::        ",
+            "    ::::        ",
+            "    `::::       ",
+            "      `':;;.-   "
+        ],
+        sun: [
+            "      \\  |  /   ",
+            "    '- .:::. -' ",
+            "   '-,:::::::,-' ",
+            "   '-`:::::::`-'",
+            "    .- ':::' -. ",
+            "      /  |  \\   ",
+        ]
+    };
+
+    return artByStage[stage] || artByStage.sun;
+}
+
 async function askValidated(question, prompt, validate, errorMessage) {
     while (true) {
         const input = await question(prompt);
@@ -487,9 +525,12 @@ class PrayerApp {
 
     buildHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
+        const stage = getCelestialStage(this.getCurrentDecimalHour(now), this.times);
+        const artLines = renderCelestialArt(stage.key).map((line) => ` ${accent(line)}`);
         return [
             "",
             ` ${highlight("✨ Prayer Notifier")}`,
+            ...artLines,
             ` ${bright(formatBlinkingClock(now))}`,
             ` ${dim(now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}`,
             ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`,
@@ -501,10 +542,12 @@ class PrayerApp {
 
     buildLiveHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
-        return [
-            ` ${bright(formatBlinkingClock(now))}`,
-            ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`
-        ];
+        const stage = getCelestialStage(this.getCurrentDecimalHour(now), this.times);
+        return {
+            artLines: renderCelestialArt(stage.key).map((line) => ` ${accent(line)}`),
+            clockLine: ` ${bright(formatBlinkingClock(now))}`,
+            nextLine: ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`
+        };
     }
 
     buildCommandLines() {
@@ -524,6 +567,10 @@ class PrayerApp {
 
     refreshUI() {
         process.stdout.write('\x1B[2J\x1B[3J\x1B[H');
+        const liveHeaderLines = this.buildLiveHeaderLines();
+        this.liveHeaderStartRow = 2;
+        this.liveClockRow = this.liveHeaderStartRow + liveHeaderLines.artLines.length;
+        this.liveNextPrayerRow = this.liveClockRow + 2;
         const tableLines = this.isCompactLayout()
             ? this.renderCompactPrayerLines()
             : this.renderFullPrayerTable();
@@ -536,8 +583,11 @@ class PrayerApp {
     updateLiveHeader() {
         const lines = this.buildLiveHeaderLines();
         process.stdout.write("\x1b7");
-        this.writeScreenLine(2, lines[0]);
-        this.writeScreenLine(4, lines[1]);
+        for (let index = 0; index < lines.artLines.length; index += 1) {
+            this.writeScreenLine(this.liveHeaderStartRow + index, lines.artLines[index]);
+        }
+        this.writeScreenLine(this.liveClockRow, lines.clockLine);
+        this.writeScreenLine(this.liveNextPrayerRow, lines.nextLine);
         process.stdout.write("\x1b8");
     }
 
