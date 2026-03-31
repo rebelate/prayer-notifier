@@ -534,26 +534,36 @@ class PrayerApp {
 
     buildHeaderLines(now = new Date()) {
         const live = this.buildLiveHeaderLines(now);
-        return [
+        const lines = [
             "",
             ` ${highlight("✨ Prayer Notifier")}`,
-            ...live.artLines,
-            live.clockLine,
-            ` ${dim(now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}`,
-            live.nextLine,
+            ...live.artLines
+        ];
+        if (live.clockLine)
+            lines.push(live.clockLine);
+        lines.push(` ${dim(now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}`);
+        if (live.nextLine)
+            lines.push(live.nextLine);
+        if (!this.isCompactLayout()) {
+          lines.push(
             ` ${subtle(this.calc.getMethodLabel())}`,
             ` ${subtle(`Location: ${this.calc.lat}, ${this.calc.lon} (${this.tzName})`)}`,
-            ""
-        ];
+          );
+        }
+        return lines;
     }
 
     buildLiveHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
+        const terminalHeight = process.stdout.rows || 31; // Default to 24 if undefined
+        const showArt = !this.isCompactLayout() ? terminalHeight >= 31 : terminalHeight >= 26; // Only show art if height is sufficient
+        const showClock = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20; // Show clock if height >= 20
+        const showNext = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20; // Show next prayer if height >= 15
         return {
-            artLines: renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times, this.gracePeriodMinutes))
-                .map((line) => ` ${accent(line)}`),
-            clockLine: ` ${bright(formatBlinkingClock(now))}`,
-            nextLine: ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}`
+            artLines: showArt ? renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times, this.gracePeriodMinutes))
+                .map((line) => ` ${accent(line)}`) : [],
+            clockLine: showClock ? ` ${bright(formatBlinkingClock(now))}` : '',
+            nextLine: showNext ? ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}` : ''
         };
     }
 
@@ -593,8 +603,12 @@ class PrayerApp {
         for (let index = 0; index < lines.artLines.length; index += 1) {
             this.writeScreenLine(this.liveHeaderStartRow + index, lines.artLines[index]);
         }
-        this.writeScreenLine(this.liveClockRow, lines.clockLine);
-        this.writeScreenLine(this.liveNextPrayerRow, lines.nextLine);
+        if (lines.clockLine) {
+            this.writeScreenLine(this.liveClockRow, lines.clockLine);
+        }
+        if (lines.nextLine) {
+            this.writeScreenLine(this.liveNextPrayerRow, lines.nextLine);
+        }
         process.stdout.write("\x1b8");
     }
 
