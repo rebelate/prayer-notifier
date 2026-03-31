@@ -124,7 +124,7 @@ function saveState(state) {
 }
 
 function formatLocalDayKey(date, tzName) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
+    const parts = new Intl.DateTimeFormat("en-US", {
         timeZone: tzName,
         year: "numeric",
         month: "2-digit",
@@ -137,7 +137,7 @@ function formatLocalDayKey(date, tzName) {
 }
 
 function formatTimeInZone(date, tzName) {
-    return new Intl.DateTimeFormat("en-GB", {
+    return new Intl.DateTimeFormat("en-US", {
         timeZone: tzName,
         hour: "2-digit",
         minute: "2-digit",
@@ -211,7 +211,7 @@ function getBlinkSeparator(now = new Date(), periodSeconds = 2) {
 }
 
 function formatBlinkingClock(now = new Date()) {
-    const parts = new Intl.DateTimeFormat("en-GB", {
+    const parts = new Intl.DateTimeFormat("en-US", {
         hour: "2-digit",
         minute: "2-digit",
         hour12: false
@@ -614,7 +614,7 @@ class PrayerApp {
             `${highlight("d")}huhr`,
             `${highlight("a")}sr`,
             `${highlight("m")}aghrib`,
-            `${highlight("i")}sha`
+            `${highlight("i")}sya`
         ].join(" ");
         return `${subtle(`${label}:`)} ${choices}`;
     }
