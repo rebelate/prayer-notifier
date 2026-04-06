@@ -1,0 +1,12 @@
+{
+  "lat": -6.1751,
+  "lon": 106.8272,
+  "tzName": "Asia/Jakarta",
+  "ihtiyatMinutes": 2,
+  "theme": "cherry_blossom",
+  "dayKey": "2026-04-06",
+  "done": {
+    "Dhuhr": "15:59",
+    "Fajr": "15:59"
+  }
+}

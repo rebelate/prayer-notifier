@@ -12,6 +12,19 @@ const ANSI = {
     Dim: "\x1b[2m"
 };
 
+const FPS = 5;
+const INTERVAL = 1000 / FPS;
+
+const EXPAND_TIME = 2000;
+const HOLD_TIME = 1000;
+const FADE_OUT_TIME = 2000;
+const SWITCH_INTERVAL = EXPAND_TIME + HOLD_TIME + FADE_OUT_TIME;
+
+const CENTERS = {
+    sun:  { x: 9,   y: 2.5 },
+    moon: { x: 8,   y: 2.5 }
+};
+
 const THEMES = {
     amber_glow: {
         border: "\x1b[38;2;237;183;120m",
@@ -222,26 +235,29 @@ function formatBlinkingClock(now = new Date()) {
     return `${hour}${separator}${minute}`;
 }
 
-function getCelestialStage(currentHour, times, gracePeriodMinutes) {
+function getCelestialStage(currentHour, times, gracePeriodMinutes) { // gracePeriodMinutes is now effectively ignored
     const fajr = times.Fajr;
     const maghrib = times.Maghrib;
 
     if ([fajr, maghrib].some((value) => value === null)) {
-        return "sun";
+        return "sun"; // Default to sun if times are not available
     }
 
-    const gracePeriodHours = gracePeriodMinutes / 60.0;
+    const fajrPlusOneHour = (fajr + 1) % 24; // Fajr + 1 hour, handling midnight transition
 
-    // "Sun" period is from Fajr until Maghrib, extended by gracePeriodHours
-    if (currentHour >= fajr -gracePeriodHours && currentHour < (maghrib - gracePeriodHours)) {
+    // If current time is past Maghrib, it's moon
+    // Or if current time is before (Fajr + 1 hour)
+    if (currentHour >= maghrib || (currentHour < fajrPlusOneHour && currentHour >= 0)) {
+        return "moon";
+    } else if (currentHour >= fajrPlusOneHour && currentHour < maghrib) {
+        // If current time is after (Fajr + 1 hour) and before Maghrib, it's sun
         return "sun";
     } else {
-        // If currentHour is before Fajr OR after Maghrib (plus grace), it's moon
-        return "moon";
+        return "moon"; // Should cover any remaining cases, e.g., early morning before Fajr + 1 hour
     }
 }
 
-function renderCelestialArt(stage) {
+function renderCelestialArt(stage, progress, isHolding) {
     const artByStage = {
         moon: [
             "       _..._    ",
@@ -260,8 +276,70 @@ function renderCelestialArt(stage) {
             "      /  |  \\   ",
         ]
     };
+    const baseArt = artByStage[stage] || artByStage.sun;
+    const distMap = getDistanceMap(baseArt, stage);
+    return renderFrame(baseArt, distMap, progress, stage, isHolding);
+}
 
-    return artByStage[stage] || artByStage.sun;
+function getDistanceMap(art, stage) {
+    const { x: cx, y: cy } = CENTERS[stage];
+
+    const height = art.length;
+    const width = Math.max(...art.map(r => r.length));
+
+    const map = [];
+
+    for (let y = 0; y < height; y++) {
+        map[y] = [];
+        for (let x = 0; x < width; x++) {
+            const dx = x - cx;
+            const dy = y - cy;
+            map[y][x] = Math.sqrt(dx * dx + dy * dy);
+        }
+    }
+
+    return map;
+}
+
+function renderFrame(art, distMap, progress, stage, isHolding) {
+    let output = "";
+    // Use theme colors
+    const palette = [Theme.muted, Theme.border, Theme.title + ANSI.Bright];
+
+    const maxDist = Math.max(...distMap.flat());
+
+    for (let y = 0; y < art.length; y++) {
+        for (let x = 0; x < art[y].length; x++) {
+            const char = art[y][x];
+
+            if (char === " ") {
+                output += " ";
+                continue;
+            }
+
+            const d = distMap[y][x];
+
+            let idx = 0;
+
+            if (isHolding) {
+                idx = 2;
+            } else {
+                // Adjust progress to delay the start of the glow
+                const effectiveProgress = Math.max(0, progress - 0.1); // Start glow after 10% of EXPAND_TIME
+
+                const threshold = effectiveProgress * maxDist;
+
+                if (d < threshold - 0.5) idx = 2;
+                else if (d < threshold + 0.5) idx = 1;
+                else idx = 0;
+            }
+
+            output += palette[idx] + char + "\x1b[0m";
+        }
+        output += "\n";
+    }
+
+    return output.split('\n').filter(line => line.length > 0); // Return as an array of lines
 }
 
 async function askValidated(question, prompt, validate, errorMessage) {
@@ -431,6 +509,10 @@ class PrayerApp {
         this.sigcontListener = null;
         this.pendingAction = "";
         this.inputRow = 0;
+        this.art = null;
+        this.artStage = null;
+        this.distMap = null;
+        this.artAnimationHandle = null;
     }
 
     updateDay(date) {
@@ -555,13 +637,42 @@ class PrayerApp {
 
     buildLiveHeaderLines(now = new Date()) {
         const nextPrayer = this.getNextPrayerInfo(now);
-        const terminalHeight = process.stdout.rows || 31; // Default to 24 if undefined
+        const terminalHeight = process.stdout.rows || 31;
         const showArt = !this.isCompactLayout() ? terminalHeight >= 31 : terminalHeight >= 26; // Only show art if height is sufficient
-        const showClock = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20; // Show clock if height >= 20
-        const showNext = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20; // Show next prayer if height >= 15
+        const showClock = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20;
+        const showNext = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20;
+
+        let progress = 0;
+        let isHolding = false;
+        const elapsed = now.getTime() - this.artCycleStart;
+
+        if (elapsed < EXPAND_TIME) {
+            progress = elapsed / EXPAND_TIME;
+        } else if (elapsed < EXPAND_TIME + HOLD_TIME) {
+            progress = 1;
+            isHolding = true;
+        } else if (elapsed < EXPAND_TIME + HOLD_TIME + FADE_OUT_TIME) {
+            // Fade out phase
+            const fadeOutElapsed = elapsed - (EXPAND_TIME + HOLD_TIME);
+            progress = 1 - (fadeOutElapsed / FADE_OUT_TIME); // Progress goes from 1 to 0
+        } else {
+            progress = 0;
+            isHolding = false;
+        }
+
+        const currentHour = this.getCurrentDecimalHour(now);
+        const actualStage = getCelestialStage(currentHour, this.times, this.gracePeriodMinutes);
+
+        // If the celestial stage has changed OR if the current animation cycle has completed,
+        // reset the animation for the *current* actual stage.
+        if (this.artStage !== actualStage || (now.getTime() - this.artCycleStart >= SWITCH_INTERVAL)) {
+            this.artStage = actualStage; // Ensure artStage always reflects the actual stage
+            this.artCycleStart = now.getTime();    // Start a new animation cycle
+        }
+        const currentArt = showArt ? renderCelestialArt(this.artStage, progress, isHolding) : [];
+
         return {
-            artLines: showArt ? renderCelestialArt(getCelestialStage(this.getCurrentDecimalHour(now), this.times, this.gracePeriodMinutes))
-                .map((line) => ` ${accent(line)}`) : [],
+            artLines: currentArt.map((line) => ` ${line}`),
             clockLine: showClock ? ` ${bright(formatBlinkingClock(now))}` : '',
             nextLine: showNext ? ` ${info(`Next: ${nextPrayer.name} at ${nextPrayer.time} (${formatMinutesFromNow(nextPrayer.minutesLeft)})`)}` : ''
         };
@@ -821,6 +932,10 @@ class PrayerApp {
             clearInterval(this.liveHeaderHandle);
             this.liveHeaderHandle = null;
         }
+        if (this.artAnimationHandle) {
+            clearInterval(this.artAnimationHandle);
+            this.artAnimationHandle = null;
+        }
         this.disableInteractiveInput();
         this.keyListener = null;
         if (this.resizeListener) {
@@ -874,15 +989,16 @@ class PrayerApp {
     }
 
     startLiveHeaderUpdates() {
-        this.liveHeaderHandle = setInterval(() => {
+        this.artAnimationHandle = setInterval(() => {
+
             this.updateLiveHeader();
-        }, 2000);
+        }, INTERVAL);
     }
 
     async start() {
         this.monitor();
-        this.refreshUI();
         this.startLiveHeaderUpdates();
+        this.refreshUI();
         this.enableInteractiveInput();
         if (process.stdout.isTTY) {
             this.resizeListener = () => {
@@ -899,9 +1015,7 @@ class PrayerApp {
         this.sigcontListener = () => {
             this.resumeFromSuspend();
         };
-        process.off("SIGINT", this.sigintListener);
-        process.off("SIGTSTP", this.sigtstpListener);
-        process.off("SIGCONT", this.sigcontListener);
+
         process.on("SIGINT", this.sigintListener);
         process.on("SIGTSTP", this.sigtstpListener);
         process.on("SIGCONT", this.sigcontListener);
