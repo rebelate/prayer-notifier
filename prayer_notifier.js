@@ -653,9 +653,9 @@ class PrayerApp {
 
     buildLiveHeaderLines(now = new Date()) {
         const terminalHeight = process.stdout.rows || 31;
-        const showArt = !this.isCompactLayout() ? terminalHeight >= 31 : terminalHeight >= 26; // Only show art if height is sufficient
-        const showClock = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20;
-        const showNext = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20;
+        const showArt = !this.isCompactLayout() ? terminalHeight >= 32 : terminalHeight >= 26; // Only show art if height is sufficient
+        const showClock = !this.isCompactLayout() ? terminalHeight >= 26 : terminalHeight >= 20;
+        const showNext = !this.isCompactLayout() ? terminalHeight >= 26 : terminalHeight >= 20;
 
         let progress = 0;
         let isHolding = false;
