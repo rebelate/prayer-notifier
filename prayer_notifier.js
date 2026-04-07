@@ -235,7 +235,7 @@ function formatBlinkingClock(now = new Date()) {
     return `${hour}${separator}${minute}`;
 }
 
-function getCelestialStage(currentHour, times, gracePeriodMinutes) { // gracePeriodMinutes is now effectively ignored
+function getCelestialStage(currentHour, times) {
     const fajr = times.Fajr;
     const maghrib = times.Maghrib;
 
@@ -303,7 +303,6 @@ function getDistanceMap(art, stage) {
 
 function renderFrame(art, distMap, progress, stage, isHolding) {
     let output = "";
-    // Use theme colors
     const palette = [Theme.muted, Theme.border, Theme.title + ANSI.Bright];
 
     const maxDist = Math.max(...distMap.flat());
@@ -324,8 +323,7 @@ function renderFrame(art, distMap, progress, stage, isHolding) {
             if (isHolding) {
                 idx = 2;
             } else {
-                // Adjust progress to delay the start of the glow
-                const effectiveProgress = Math.max(0, progress - 0.1); // Start glow after 10% of EXPAND_TIME
+                const effectiveProgress = Math.max(0, progress - 0.1);
 
                 const threshold = effectiveProgress * maxDist;
 
@@ -339,7 +337,7 @@ function renderFrame(art, distMap, progress, stage, isHolding) {
         output += "\n";
     }
 
-    return output.split('\n').filter(line => line.length > 0); // Return as an array of lines
+    return output.split('\n').filter(line => line.length > 0);
 }
 
 async function askValidated(question, prompt, validate, errorMessage) {
@@ -468,9 +466,20 @@ class PrayerCalculator {
 
         const asrAlt = this._deg(Math.atan(1.0 / (1.0 + Math.tan(this._rad(Math.abs(this.lat - decl))))));
         const buf = this.ihtiyatMinutes / 60.0;
-        const times = { "Fajr": ha(-20, -1), "Dhuhr": noon, "Asr": ha(asrAlt, 1), "Maghrib": ha(-0.833, 1), "Isya": ha(-18, 1) };
+
+        const times = {
+            "Fajr": ha(-20, -1),
+            "Sunrise": ha(-0.833, -1),
+            "Dhuhr": noon,
+            "Asr": ha(asrAlt, 1),
+            "Maghrib": ha(-0.833, 1),
+            "Isya": ha(-18, 1)
+        };
+
         const res = {};
-        for (const [n, v] of Object.entries(times)) { res[n] = v !== null ? (v + buf) % 24 : null; }
+        for (const [n, v] of Object.entries(times)) {
+            res[n] = v !== null ? (n === "Sunrise" ? v : (v + buf) % 24) : null;
+        }
         return res;
     }
 
@@ -513,6 +522,7 @@ class PrayerApp {
         this.artStage = null;
         this.distMap = null;
         this.artAnimationHandle = null;
+        this.artCycleStart = Date.now();
     }
 
     updateDay(date) {
@@ -575,7 +585,9 @@ class PrayerApp {
 
     getNextPrayerInfo(now = new Date()) {
         const current = this.getCurrentDecimalHour(now);
-        for (const [name, pHour] of Object.entries(this.times)) {
+        const prayerKeys = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isya"];
+        for (const name of prayerKeys) {
+            const pHour = this.times[name];
             if (pHour === null) continue;
 
             const diff = (pHour - current) * 60.0;
@@ -601,6 +613,7 @@ class PrayerApp {
     }
 
     getPrayerStatus(name) {
+        if (name === "Sunrise") return { compact: "         ", full: "            " };
         const doneAt = this.done[name];
         if (doneAt) {
             return {
@@ -624,8 +637,11 @@ class PrayerApp {
         if (live.clockLine)
             lines.push(live.clockLine);
         lines.push(` ${dim(now.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" }))}`);
-        if (live.nextLine)
-            lines.push(live.nextLine);
+        if (live.nextLine) lines.push(live.nextLine);
+
+        const sunriseTime = this.calc.formatTime(this.times.Sunrise);
+        lines.push(` ${subtle(`Sunrise (Syuruq): ${sunriseTime}`)}`);
+
         if (!this.isCompactLayout()) {
           lines.push(
             ` ${subtle(this.calc.getMethodLabel())}`,
@@ -636,7 +652,6 @@ class PrayerApp {
     }
 
     buildLiveHeaderLines(now = new Date()) {
-        const nextPrayer = this.getNextPrayerInfo(now);
         const terminalHeight = process.stdout.rows || 31;
         const showArt = !this.isCompactLayout() ? terminalHeight >= 31 : terminalHeight >= 26; // Only show art if height is sufficient
         const showClock = !this.isCompactLayout() ? terminalHeight >= 25 : terminalHeight >= 20;
@@ -661,7 +676,7 @@ class PrayerApp {
         }
 
         const currentHour = this.getCurrentDecimalHour(now);
-        const actualStage = getCelestialStage(currentHour, this.times, this.gracePeriodMinutes);
+        const actualStage = getCelestialStage(currentHour, this.times);
 
         // If the celestial stage has changed OR if the current animation cycle has completed,
         // reset the animation for the *current* actual stage.
@@ -670,6 +685,7 @@ class PrayerApp {
             this.artCycleStart = now.getTime();    // Start a new animation cycle
         }
         const currentArt = showArt ? renderCelestialArt(this.artStage, progress, isHolding) : [];
+        const nextPrayer = this.getNextPrayerInfo(now);
 
         return {
             artLines: currentArt.map((line) => ` ${line}`),
@@ -966,7 +982,9 @@ class PrayerApp {
                 this.refreshUI();
             }
             const curr = this.getCurrentDecimalHour(now);
-            for (const [name, pHour] of Object.entries(this.times)) {
+            const prayerKeys = ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isya"];
+            for (const name of prayerKeys) {
+                const pHour = this.times[name];
                 if (pHour === null) continue;
                 const diff = (pHour - curr) * 60.0;
                 if (diff > 29.5 && diff <= 30.5 && !this.notified.has(`${name}_30`)) {
