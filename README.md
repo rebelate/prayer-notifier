@@ -5,9 +5,10 @@ uses Meeus Solar Calculation
 
 ## Screenshots
 
-![Screenshot 1](image/Screenshot%20From%202026-03-29%2014-44-36.png)
-![Screenshot 2](image/Screenshot%20From%202026-03-29%2014-44-48.png)
-![Screenshot 3](image/Screenshot%20From%202026-03-29%2014-45-03.png)
+![Screenshot 1](image/image1.png)
+![Screenshot 2](image/image2.png)
+![Screenshot 3](image/image3.png)
+![Screenshot 4](image/image4.png)
 
 ## Run
 
